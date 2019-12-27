@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -139,7 +140,29 @@ func (c *liveStateCache) getCluster(server string) (*clusterInfo, error) {
 			onEventReceived: func(event watch.EventType, un *unstructured.Unstructured) {
 				c.metricsServer.IncClusterEventsCount(cluster.Server)
 			},
+			events: make(chan eventData),
 		}
+		go func() {
+			batch := make([]eventData, 0)
+			for {
+				select {
+				case event, ok := <-info.events:
+					if !ok {
+						return
+					}
+					batch = append(batch, event)
+					if len(batch) >= 100 {
+						info.processEventsBatch(batch)
+						batch = nil
+					}
+				case <-time.After(100 * time.Millisecond):
+					if len(batch) > 0 {
+						info.processEventsBatch(batch)
+						batch = nil
+					}
+				}
+			}
+		}()
 
 		c.clusters[cluster.Server] = info
 	}

@@ -40,11 +40,17 @@ type apiMeta struct {
 	watchCancel     context.CancelFunc
 }
 
+type eventData struct {
+	eventType watch.EventType
+	un        *unstructured.Unstructured
+}
+
 type clusterInfo struct {
 	syncTime      *time.Time
 	syncError     error
 	apisMeta      map[schema.GroupKind]*apiMeta
 	serverVersion string
+	events        chan eventData
 
 	lock    *sync.RWMutex
 	nodes   map[kube.ResourceKey]*node
@@ -536,16 +542,22 @@ func (c *clusterInfo) processEvent(event watch.EventType, un *unstructured.Unstr
 	if c.onEventReceived != nil {
 		c.onEventReceived(event, un)
 	}
+	c.events <- eventData{eventType: event, un: un}
+}
+
+func (c *clusterInfo) processEventsBatch(events []eventData) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	key := kube.GetResourceKey(un)
-	existingNode, exists := c.nodes[key]
-	if event == watch.Deleted {
-		if exists {
-			c.onNodeRemoved(key, existingNode)
+	for _, event := range events {
+		key := kube.GetResourceKey(event.un)
+		existingNode, exists := c.nodes[key]
+		if event.eventType == watch.Deleted {
+			if exists {
+				c.onNodeRemoved(key, existingNode)
+			}
+		} else if event.eventType != watch.Deleted {
+			c.onNodeUpdated(exists, existingNode, event.un, key)
 		}
-	} else if event != watch.Deleted {
-		c.onNodeUpdated(exists, existingNode, un, key)
 	}
 }
 
