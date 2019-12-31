@@ -338,6 +338,27 @@ func TestDontPrunePruneFalse(t *testing.T) {
 	assert.Equal(t, v1alpha1.OperationSucceeded, syncCtx.opState.Phase)
 }
 
+func TestHookGenerateName(t *testing.T) {
+	syncCtx := newTestSyncCtx()
+	syncCtx.syncOp.SyncStrategy = &v1alpha1.SyncStrategy{Hook: &v1alpha1.SyncStrategyHook{}}
+
+	resourcePod := test.NewPod()
+	resourcePod.SetNamespace(test.FakeArgoCDNamespace)
+
+	pod := test.NewPod()
+	pod.SetName("")
+	pod.SetGenerateName("foo-bar-")
+	pod.SetAnnotations(map[string]string{
+		"argocd.argoproj.io/hook": "PreSync,PostSync",
+	})
+	pod.SetNamespace(test.FakeArgoCDNamespace)
+
+	syncCtx.compareResult = &comparisonResult{managedResources: []managedResource{{Live: resourcePod}}, hooks: []*unstructured.Unstructured{pod}}
+	syncCtx.syncRes = &v1alpha1.SyncOperationResult{Revision: "1.59.0"}
+
+	syncCtx.getSyncTasks()
+}
+
 // make sure Validate=false means we don't validate
 func TestSyncOptionValidate(t *testing.T) {
 	tests := []struct {
